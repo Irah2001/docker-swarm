@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   api:
-    image: ghcr.io/Irah2001/docker-swarm:${IMAGE_TAG:-latest}
+    image: ghcr.io/irah2001/docker-swarm:${IMAGE_TAG:-latest}
     ports:
       - "3000:3000"
     environment:

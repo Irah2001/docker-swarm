@@ -37,3 +37,55 @@ Dans un bon pipeline CI/CD, on évite d'utiliser uniquement latest. La meilleure
 ### Pourquoi un tag immuable est préférable pour un déploiement fiable ?
 
 Un tag "immuable" (comme un SHA ou un numéro de version fixe) est une étiquette qui ne sera jamais écrasée ou modifiée une fois publiée.
+
+## Partie D — Accès distant au cluster Swarm
+
+**Architecture choisie** : VPN (Tailscale) + Docker context via SSH
+GitHub Actions rejoint un réseau privé virtuel (Tailscale) sur lequel se trouve déjà la machine locale, puis lance les commandes Docker via un tunnel SSH sécurisé.
+
+### Schéma simple
+[ GitHub Actions Runner ]
+       |
+       | (Connexion VPN Tailscale initiée via un Auth Key)
+       v
+[ Réseau privé Tailscale (Tunnel chiffré WireGuard) ]
+       |
+       | (Connexion SSH initiée via clé privée)
+       v
+[ Machine Locale (Manager Swarm) ] --> Exécute le déploiement
+
+### Mécanisme d'authentification :
+
+Il y a une double couche d'authentification, garantissant une sécurité optimale :
+
+- Niveau Réseau (Tailscale) : Le runner GitHub s'authentifie sur le VPN Tailscale grâce à une clé d'authentification éphémère (`TAILSCALE_AUTHKEY`) stockée dans les secrets GitHub.
+
+- Niveau Système/Docker (SSH) : Le runner s'authentifie sur la machine locale via une clé SSH privée (`SSH_PRIVATE_KEY`), également stockée dans les secrets GitHub. La clé publique correspondante est autorisée sur le serveur (`~/.ssh/authorized_keys`).
+
+### Ports exposés :
+
+- Sur Internet : Aucun. (C'est le grand avantage du VPN).
+
+- Sur le réseau Tailscale : Seul le port 22 (SSH) est accessible pour le runner.
+
+### Risques et mitigations (Surface d'attaque) :
+
+- Risque : Fuite de la clé SSH privée ou de la clé Tailscale depuis GitHub.
+
+- Mitigation 1 (Révocation facile) : Si compromission, il suffit de supprimer la clé publique du fichier `authorized_keys du serveur local ou de révoquer la machine dans l'interface Tailscale. L'accès est coupé instantanément.
+
+- Mitigation 2 (Moindre privilège) : L'utilisateur SSH utilisé sur le serveur n'est pas root, il appartient uniquement au groupe docker pour limiter ses actions.
+
+- Mitigation 3 (Secrets) : Aucun secret n'est en clair dans le code. Ils sont injectés uniquement au moment de l'exécution via les GitHub Secrets.
+
+### Pourquoi exposer Docker en TCP sans TLS est dangereux ?
+
+L'API de Docker a par défaut les mêmes privilèges que l'utilisateur root sur la machine hôte. Si on expose cette API sur un port réseau TCP (ex: 2375) sans TLS (sans chiffrement ni authentification), n'importe qui sur le réseau peut envoyer une commande pour créer un conteneur malveillant, monter le système de fichiers principal (/) du serveur à l'intérieur de ce conteneur, et prendre le contrôle total de la machine en quelques secondes.
+
+### Quelle différence entre “le runner atteint le manager” et “le manager atteint le runner” ?
+
+C'est la différence fondamentale entre les modèles Push et Pull en architecture réseau :
+
+- Le runner atteint le manager (Push) : GitHub Actions (le runner) prend l'initiative et "pousse" les commandes vers le serveur. Cela nécessite que le serveur soit joignable depuis l'extérieur (d'où le besoin du VPN Tailscale pour percer le pare-feu de votre box internet).
+
+- Le manager atteint le runner (Pull) : Le serveur interne initie la connexion vers l'extérieur (par exemple, en installant un Self-hosted Runner GitHub directement sur la machine). Dans ce cas, c'est le serveur qui demande à GitHub "Y a-t-il du travail pour moi ?". C'est souvent plus simple pour un réseau domestique car cela ne nécessite ni VPN ni ouverture de ports entrants (les pare-feu autorisent par défaut le trafic sortant).

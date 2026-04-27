@@ -34,3 +34,37 @@ jobs:
                   context: .
                   push: true
                   tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+    deploy:
+        needs: build-and-push
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Récupérer le code source (pour le fichier docker-compose)
+              uses: actions/checkout@v3
+
+            - name: Connexion au réseau Tailscale
+              uses: tailscale/github-action@v3
+              with:
+                  authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+                  version: latest
+
+            - name: Configurer la clé SSH
+              uses: webfactory/ssh-agent@v0.8.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+            - name: Ajouter le serveur aux hôtes connus (known_hosts)
+              run: |
+                  mkdir -p ~/.ssh
+                  ssh-keyscan -4 -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts || (sleep 5 && ssh-keyscan -4 -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts)
+
+            - name: Créer le contexte Docker distant via SSH
+              run: |
+                  docker context create distant-swarm --docker "host=ssh://${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
+                  docker context use distant-swarm
+
+            - name: Déployer la stack sur Docker Swarm
+              env:
+                  IMAGE_TAG: ${{ github.sha }}
+              run: |
+                  docker stack deploy -c docker-compose.yml api-stack
