@@ -89,3 +89,20 @@ C'est la différence fondamentale entre les modèles Push et Pull en architectur
 - Le runner atteint le manager (Push) : GitHub Actions (le runner) prend l'initiative et "pousse" les commandes vers le serveur. Cela nécessite que le serveur soit joignable depuis l'extérieur (d'où le besoin du VPN Tailscale pour percer le pare-feu de votre box internet).
 
 - Le manager atteint le runner (Pull) : Le serveur interne initie la connexion vers l'extérieur (par exemple, en installant un Self-hosted Runner GitHub directement sur la machine). Dans ce cas, c'est le serveur qui demande à GitHub "Y a-t-il du travail pour moi ?". C'est souvent plus simple pour un réseau domestique car cela ne nécessite ni VPN ni ouverture de ports entrants (les pare-feu autorisent par défaut le trafic sortant).
+
+## Partie E — Déploiement Swarm
+
+### Comment Swarm gère-t-il un rolling update ?
+
+Docker Swarm effectue des mises à jour progressives (rolling updates) pour garantir une disponibilité continue de l'application (zéro coupure). Plutôt que de redémarrer tous les conteneurs d'un coup, il suit les règles strictes définies dans le bloc update_config de notre stack :
+- Remplacement progressif (parallelism: 1) : Il met à jour les instances une par une.
+- Ordre de démarrage (order: start-first) : Il démarre le nouveau conteneur et attend qu'il soit pleinement fonctionnel avant d'éteindre l'ancienne version.
+- Temporisation (delay: 10s) : Il marque une pause de 10 secondes entre chaque mise à jour pour s'assurer de la stabilité de la charge système.
+
+### Que se passe-t-il si le healthcheck échoue pendant l’update ?
+
+Le healthcheck agit comme un véritable filet de sécurité. Si la nouvelle version déployée contient une erreur et que la route /health ne répond pas correctement, voici comment Swarm réagit :
+1. Le nouveau conteneur est identifié comme unhealthy.
+2. Swarm bloque immédiatement la mise à jour pour ne pas casser le reste du cluster. Les autres réplicas continuent de tourner sur l'ancienne version stable.
+3. Le routeur interne (routing mesh) ne redirigera jamais le trafic des utilisateurs vers ce conteneur défectueux.
+4. Grâce à la configuration failure_action: rollback, Swarm annule l'opération et déclenche un retour en arrière automatique vers l'image précédente, restaurant l'état sain sans aucune intervention humaine.

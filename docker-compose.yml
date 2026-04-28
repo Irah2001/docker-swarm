@@ -7,10 +7,18 @@ services:
       - "3000:3000"
     environment:
       - PORT=3000
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     deploy:
-      replicas: 2
+      replicas: 3
       update_config:
         parallelism: 1
         delay: 10s
+        order: start-first
+        failure_action: rollback
       restart_policy:
         condition: on-failure
