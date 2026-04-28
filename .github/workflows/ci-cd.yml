@@ -68,3 +68,17 @@ jobs:
                   IMAGE_TAG: ${{ github.sha }}
               run: |
                   docker stack deploy -c docker-compose.yml api-stack
+            - name: Smoke Test et Logs du service
+              run: |
+                  echo "Attente de la mise à jour des conteneurs (15s)..."
+                  sleep 15
+
+                  echo "=== État des services Swarm ==="
+                  docker service ls
+
+                  echo "=== Détail des tâches (Logs utiles) ==="
+                  docker service ps api-stack_api
+
+                  echo "=== Smoke Test (Vérification de l'API) ==="
+                  curl --fail http://${{ secrets.SSH_HOST }}:3000/health || exit 1
+                  echo "Déploiement réussi, l'API répond parfaitement !"

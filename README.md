@@ -106,3 +106,20 @@ Le healthcheck agit comme un véritable filet de sécurité. Si la nouvelle vers
 2. Swarm bloque immédiatement la mise à jour pour ne pas casser le reste du cluster. Les autres réplicas continuent de tourner sur l'ancienne version stable.
 3. Le routeur interne (routing mesh) ne redirigera jamais le trafic des utilisateurs vers ce conteneur défectueux.
 4. Grâce à la configuration failure_action: rollback, Swarm annule l'opération et déclenche un retour en arrière automatique vers l'image précédente, restaurant l'état sain sans aucune intervention humaine.
+
+## Partie F — GitHub Actions CI/CD
+
+### Comment éviter d’afficher des secrets dans les logs ?
+
+Il y a deux règles pour protéger les secrets dans les pipelines CI/CD :
+1. Utiliser le coffre-fort natif (GitHub Secrets) : En stockant nos clés et mots de passe dans les Secrets de GitHub (ex: ${{ secrets.SSH_PRIVATE_KEY }}), GitHub Actions va automatiquement masquer ces valeurs. Si le secret est accidentellement affiché dans un log, le système le remplacera visuellement par des astérisques (***).
+2. Ne jamais faire d'affichage explicite (echo) : Il faut s'interdire d'utiliser des commandes comme echo ${{ secrets.MON_SECRET }} ou d'activer le mode debug de bash (set -x) lors de la manipulation de clés, car cela pourrait contourner les protections de base et écrire le secret sur le disque ou dans des fichiers de logs bruts.
+
+### Comment valider automatiquement que le service est “UP” après deploy (smoke test) ?
+
+Pour valider qu'un déploiement s'est bien passé, on ajoute une étape de Smoke Test (test de fumée) à la toute fin du pipeline CI/CD.
+
+Plutôt que de faire confiance à la commande de déploiement, le pipeline va se comporter comme un utilisateur final :
+1. On ajoute une pause (sleep) pour laisser à Swarm le temps de démarrer les nouveaux conteneurs.
+2. On exécute une requête HTTP automatisée (avec curl) vers notre route GET /health.
+3. On utilise l'option --fail de curl. Si le service répond correctement (HTTP 200), le pipeline se termine avec succès. Si le service est hors-ligne ou renvoie une erreur (HTTP 4xx/5xx), la commande échoue (exit 1) et le pipeline est immédiatement marqué en rouge (Failed).
